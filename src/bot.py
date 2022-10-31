@@ -59,7 +59,7 @@ from pydub import AudioSegment
 
 ADMINS = [
     "87701872",
-    "499825068"
+    # "499825068"
 ]
 
 
@@ -402,7 +402,8 @@ class VOABot:
                 continue
             self.bot.send_message(
                 chat_id=chat_id,
-                text=msg
+                text=msg,
+                parse_mode="MarkdownV2"
             )
         context.bot.send_voice(
             chat_id=chat_id,
