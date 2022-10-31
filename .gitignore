@@ -130,4 +130,7 @@ prof/
 # stats/
 .DS_Store
 
-data/
+data/models/
+tmp/
+
+*.ipynb

@@ -8,7 +8,7 @@ services:
     env_file:
       - .env
     volumes:
-      - ./data:/data
+      - ./data:/home/data
       - ./tmp:$TMP_DIR
     restart: unless-stopped
     ports:
