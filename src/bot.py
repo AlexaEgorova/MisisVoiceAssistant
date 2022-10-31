@@ -1,31 +1,45 @@
 """Simple voice assistant helping on questions about NUST MISIS."""
-import os
+from datetime import datetime
 import re
 import time
 import logging
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
-from questions import QUESTIONS
-from answers import ANSWERS
+import pytz
+
+# from questions import QUESTIONS
+# from answers import ANSWERS
+from pydantic import BaseModel
+from pydantic.fields import Field
+from pydantic.env_settings import BaseSettings
+
+from pymongo import MongoClient
+from bson.objectid import ObjectId
+
+from deeppavlov import build_model, train_model, Chainer
+from deeppavlov.core.common.file import read_json
 
 # Telegram API
 # https://docs.python-telegram-bot.org/en/v20.0a4/#installing
 from telegram import (
     Update,
-    Bot
+    Bot,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
 )
 from telegram.ext import (
     MessageHandler,
     Filters,
     Updater,
     CommandHandler,
-    CallbackContext
+    CallbackContext,
+    CallbackQueryHandler
 )
 
 # Tokenizer
 # https://www.nltk.org/install.html
-import nltk
+# import nltk
 from nltk.tokenize import word_tokenize
 
 # Voice recognition
@@ -49,7 +63,59 @@ ADMINS = [
 ]
 
 
-def chatter(words: List[str]) -> Tuple[str, str, float]:
+class EnvSettings(BaseSettings):
+    class Config:
+        env_file = '.env'
+        env_file_encoding = 'utf-8'
+
+
+class MongoDBParams(EnvSettings):
+    host: str = Field(..., env="MONGO_HOST")
+    port: int = Field(..., env="MONGO_PORT")
+    username: str = Field(..., env="MONGO_USER")
+    password: str = Field(..., env="MONGO_PASSWORD")
+    db: str = 'misis-voa'
+
+
+class BotConfig(EnvSettings):
+
+    token: str = Field(..., env="BOT_TOKEN")
+    tmp_dir: str = Field(..., env="TMP_DIR")
+    db: MongoDBParams = MongoDBParams()
+
+
+class ResultRec(BaseModel):
+
+    id: Optional[str] = Field(None, alias="_id")
+
+    recognized: str
+    question: str
+    score: float
+    answer: str
+
+    user_score: Optional[int] = Field(None)
+
+    chat_id: str
+    created_at: datetime
+
+    class Config:
+        allow_population_by_field_name = True
+        arbitrary_types_allowed = True
+
+    def to_msg(self):
+        return (
+            f"`recognized`: _{prepare_text(self.recognized.lower())}_\n"
+            f"`question`: _{prepare_text(self.question)}_\n"
+            f"`score`: `{str(round(self.score, 3))}`\n"
+            f"`answer`: _{prepare_text(self.answer)}_"
+        )
+
+
+
+def chatter(
+    predictor: Chainer,
+    question: str
+) -> Tuple[str, str, float]:
     """Map a question to a list of answers and return the result.
 
     Args:
@@ -58,29 +124,19 @@ def chatter(words: List[str]) -> Tuple[str, str, float]:
     Returns:
         Tuple[str, str, float]: Question, Answer, Score.
     """
-    max_score = 0.0
-    total_score = 0.0
-    best_key = None
-    for key, value in QUESTIONS.items():
-        score = 0.0
-        for word in words:
-            if word in value:
-                score += 1
-            else:
-                score -= 0.5
-        if score > max_score:
-            max_score = score
-            _sc = max_score / len(value)
-            if _sc > 0.3:
-                best_key = key
-                total_score = _sc
+    resp = predictor([question])
 
-    q = "Unrecognized"
-    a = "Unrecognized"
-    if best_key is not None:
-        a = ANSWERS[best_key]
-        q = " ".join(QUESTIONS[best_key])
-    return q, a, total_score
+    answer = resp[0][0]
+    total_score = resp[1][0]
+
+    if not total_score:
+        answer = "UNKNOWN"
+
+    return (
+        question,
+        answer,
+        total_score
+    )
 
 
 def recognizer(audio_path: str, language: str = "ru") -> Tuple[str, List[str]]:
@@ -163,7 +219,7 @@ def converter(from_path: Path, to_path: Path) -> bool:
 
 
 def prepare_text(text: str) -> str:
-    """Formatting for Telegram messages"""
+    """Format text for Telegram messages."""
     return text\
         .replace("-", r"\-") \
         .replace("+", r"\+") \
@@ -175,23 +231,59 @@ def prepare_text(text: str) -> str:
         .replace("´", r"")
 
 
+def get_keyboard(oid: str) -> InlineKeyboardMarkup:
+    """Send a message with two inline buttons attached."""
+    keyboard = [
+        [
+            InlineKeyboardButton("❌", callback_data=f"{oid}_0"),
+            InlineKeyboardButton("✅", callback_data=f"{oid}_1"),
+        ]
+    ]
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    return reply_markup
+
+
 class VOABot:
     """Voice Bot."""
 
-    def __init__(self, token: str, tmp_dir: str):
+    def __init__(self, config: BotConfig):
         """Create voice bot."""
         self.name = "live-tg-bot"
 
+        self.config = config
         self.updater = Updater(
-            token=token,
+            token=config.token,
             use_context=True
         )
         self.bot = Bot(
-            token=token
+            token=config.token
         )
 
-        self._tmp_dir = Path(tmp_dir).resolve()
+        self._db: Optional[MongoClient] = None
+
+        self._predictor: Optional[Chainer] = None
+
+        self._tmp_dir = Path(config.tmp_dir).resolve()
         self._tmp_dir.parent.mkdir(exist_ok=True, parents=True)
+
+    def _get_mongo_client(self) -> MongoClient:
+        """Return mongodb connection."""
+        if self._db:
+            return self._db
+        url = "mongodb://{username}:{password}@{host}:{port}".format(
+            username=self.config.db.username,
+            password=self.config.db.password,
+            host=self.config.db.host,
+            port=self.config.db.port,
+        )
+        self._db = MongoClient(
+            host=url,
+            tz_aware=True,
+            tzinfo=pytz.utc
+        )
+        return self._db
 
     def _tg_callback_start(self, update: Update, context: CallbackContext):
         """/start."""
@@ -253,6 +345,7 @@ class VOABot:
         context: CallbackContext
     ) -> None:
         """Voice processing."""
+        self._predictor = self._init_model()
         new_path = path.with_suffix(".wav")  # WAV for recognition
         converted = converter(
             path,
@@ -262,7 +355,10 @@ class VOABot:
             return None
 
         line, words = recognizer(str(new_path))
-        question, answer, score = chatter(words)
+        question, answer, score = chatter(
+            self._predictor,
+            " ".join(words)
+        )
         out_path = new_path.parent / f"a_{new_path.name}"
         out_path = talker(answer, out_path)
         new_out_path = out_path.with_suffix(".ogg")  # voice messages are in OGG
@@ -276,16 +372,28 @@ class VOABot:
         if not new_out_path.exists():
             return None
 
-        msg = (
-            f"`recognized`: _{prepare_text(line.lower())}_\n"
-            f"`question`: _{prepare_text(question)}_\n"
-            f"`score`: `{str(round(score, 3))}`\n"
-            f"`answer`: _{prepare_text(answer)}_"
+        db = self._get_mongo_client()[self.config.db.db]
+
+        rec = ResultRec(
+            recognized=line,
+            question=question,
+            score=score,
+            answer=answer,
+            chat_id=chat_id,
+            created_at=datetime.now(pytz.utc)
         )
+        msg = rec.to_msg()
+
+        result = db["live_recs"].insert_one(
+            rec.dict(exclude={"id": True})
+        )
+        oid = result.inserted_id
+
         context.bot.send_message(
             chat_id=chat_id,
             text=msg,
-            parse_mode="MarkdownV2"
+            parse_mode="MarkdownV2",
+            reply_markup=get_keyboard(oid)
         )
         msg += f"\n`chat_id`: {chat_id}"
 
@@ -301,6 +409,37 @@ class VOABot:
             voice=new_out_path.open("rb")
         )
 
+    def _tg_callback_button(
+        self,
+        update: Update,
+        context: CallbackContext
+    ) -> None:
+        """Parse the CallbackQuery and updates the message text."""
+        query = update.callback_query
+        assert query is not None
+        assert query.data is not None
+
+        db = self._get_mongo_client()[self.config.db.db]
+
+        oid, user_score = query.data.split("_")
+        print("HERE", oid, user_score)
+        db["live_recs"].update_one(
+            filter={"_id": ObjectId(oid)},
+            update={"$set": {"user_score": int(user_score)}}
+        )
+        query.answer("Спасибо за оценку!")
+        # await query.edit_message_text(text=f"Selected option: {query.data}")
+
+    def _init_model(self) -> Chainer:
+        if self._predictor is not None:
+            return self._predictor
+        model_config = read_json('./data/tfidf_logreg_autofaq_misis.json')
+        try:
+            self._predictor = build_model(model_config, load_trained=True)
+        except FileNotFoundError:
+            self._predictor = train_model(model_config, download=True)
+        return self._predictor
+
     def start(self):
         """Start Bot."""
         dispatcher = self.updater.dispatcher
@@ -309,19 +448,24 @@ class VOABot:
             'start',
             self._tg_callback_start
         )
-
         voice_handler = MessageHandler(
             Filters.voice,
             self._tg_callback_voice
         )
+        button_handler = CallbackQueryHandler(
+            self._tg_callback_button
+        )
 
         dispatcher.add_handler(start_handler)
         dispatcher.add_handler(voice_handler)
+        dispatcher.add_handler(button_handler)
+
+        self._predictor = self._init_model()
 
         for admin in ADMINS:
             self.bot.send_message(
                 chat_id=admin,
-                text="Bot is up and running : ]"
+                text="🫡"
             )
 
         self.updater.start_polling()
@@ -329,15 +473,7 @@ class VOABot:
 
 
 if __name__ == "__main__":
-    token = os.environ.get('BOT_TOKEN')
-    if token is None:
-        raise Exception("No token : (")
-    tmp_dir = os.environ.get('TMP_DIR')
-    if tmp_dir is None:
-        raise Exception("No tmp_dir : (")
-
     bot = VOABot(
-        token=token,
-        tmp_dir=tmp_dir,
+        config=BotConfig()
     )
     bot.start()
