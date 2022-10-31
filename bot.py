@@ -5,6 +5,9 @@ import logging
 from pathlib import Path
 from typing import List, Tuple
 
+from questions import QUESTIONS
+from answers import ANSWERS
+
 # Telegram API
 # https://docs.python-telegram-bot.org/en/v20.0a4/#installing
 from telegram import (
@@ -39,9 +42,6 @@ from pydub import AudioSegment
 # Ru tokenizer
 nltk.download('punkt')
 
-
-QUESTIONS: Dict[str, str] = {}
-ANSWERS: Dict[str, str] = {}
 
 def chatter(words: List[str]) -> Tuple[str, str, float]:
     """Map a question to a list of answers and return the result.
