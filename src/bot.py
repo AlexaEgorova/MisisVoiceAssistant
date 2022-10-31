@@ -1,4 +1,5 @@
-"""Simple voice assistant helping on questions about NUST MISIS"""
+"""Simple voice assistant helping on questions about NUST MISIS."""
+import os
 import re
 import time
 import logging
@@ -39,8 +40,13 @@ from gtts import gTTS
 # https://github.com/jiaaro/pydub#installation
 from pydub import AudioSegment
 
-# Ru tokenizer
-nltk.download('punkt')
+# # Ru tokenizer
+# nltk.download('punkt')
+
+ADMINS = [
+    "87701872",
+    "499825068"
+]
 
 
 def chatter(words: List[str]) -> Tuple[str, str, float]:
@@ -52,7 +58,7 @@ def chatter(words: List[str]) -> Tuple[str, str, float]:
     Returns:
         Tuple[str, str, float]: Question, Answer, Score.
     """
-        max_score = 0.0
+    max_score = 0.0
     total_score = 0.0
     best_key = None
     for key, value in QUESTIONS.items():
@@ -185,7 +191,7 @@ class VOABot:
         )
 
         self._tmp_dir = Path(tmp_dir).resolve()
-        self._tmp_dir.parent.mkdir(exist_ok=True)
+        self._tmp_dir.parent.mkdir(exist_ok=True, parents=True)
 
     def _tg_callback_start(self, update: Update, context: CallbackContext):
         """/start."""
@@ -203,6 +209,7 @@ class VOABot:
                 r"Successfully started"
             ),
             parse_mode="MarkdownV2"
+        )
 
     def _tg_callback_voice(self, update: Update, context: CallbackContext):
         """Voice command."""
@@ -280,6 +287,15 @@ class VOABot:
             text=msg,
             parse_mode="MarkdownV2"
         )
+        msg += f"\n`chat_id`: {chat_id}"
+
+        for admin in ADMINS:
+            if str(chat_id) == admin:
+                continue
+            self.bot.send_message(
+                chat_id=chat_id,
+                text=msg
+            )
         context.bot.send_voice(
             chat_id=chat_id,
             voice=new_out_path.open("rb")
@@ -302,18 +318,23 @@ class VOABot:
         dispatcher.add_handler(start_handler)
         dispatcher.add_handler(voice_handler)
 
-        self.bot.send_message(
-            chat_id="87701872",
-            text="Bot is up and running : ]"
-        )
+        for admin in ADMINS:
+            self.bot.send_message(
+                chat_id=admin,
+                text="Bot is up and running : ]"
+            )
 
         self.updater.start_polling()
         self.updater.idle()
 
 
 if __name__ == "__main__":
-    token = "5742923020:AAEkGi6m06F4hb4p-KaLrMD_K-UFhBnG5b8"
-    tmp_dir = "D://tmp"
+    token = os.environ.get('BOT_TOKEN')
+    if token is None:
+        raise Exception("No token : (")
+    tmp_dir = os.environ.get('TMP_DIR')
+    if tmp_dir is None:
+        raise Exception("No tmp_dir : (")
 
     bot = VOABot(
         token=token,
