@@ -128,7 +128,7 @@ def chatter(
     total_score = resp[1][0]
 
     if not total_score:
-        answer = "Извините, не совсем поняла вопрос."
+        answer = "Извините, не совсем поняла ваш вопрос."
 
     return (
         question,
@@ -187,7 +187,11 @@ def talker(text: str, path: Path, language: str = "ru") -> Path:
     return path
 
 
-def converter(from_path: Path, to_path: Path) -> bool:
+def converter(
+    from_path: Path,
+    to_path: Path,
+    silence_ms: int = 0,
+) -> bool:
     """Audio covertion.
 
     Args:
@@ -209,6 +213,10 @@ def converter(from_path: Path, to_path: Path) -> bool:
         return False
 
     orig = reader(str(from_path))
+    if silence_ms:
+        silenced_segment = AudioSegment.silent(duration=silence_ms)
+        orig = orig + silenced_segment
+
     orig.export(
         str(to_path),
         format=to_path.suffix.replace(".", "")
@@ -347,7 +355,8 @@ class VOABot:
         new_path = path.with_suffix(".wav")  # WAV for recognition
         converted = converter(
             path,
-            new_path
+            new_path,
+            silence_ms=1000
         )
         if not converted:
             return None
@@ -359,7 +368,7 @@ class VOABot:
         )
         out_path = new_path.parent / f"a_{new_path.name}"
         out_path = talker(answer, out_path)
-        new_out_path = out_path.with_suffix(".ogg")  # voice messages are in OGG
+        new_out_path = out_path.with_suffix(".ogg")  # voice msgs are in OGG
         converted = converter(
             out_path,
             new_out_path
