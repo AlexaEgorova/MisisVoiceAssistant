@@ -8,8 +8,6 @@ from typing import List, Optional, Tuple
 
 import pytz
 
-# from questions import QUESTIONS
-# from answers import ANSWERS
 from pydantic import BaseModel
 from pydantic.fields import Field
 from pydantic.env_settings import BaseSettings
@@ -59,7 +57,7 @@ from pydub import AudioSegment
 
 ADMINS = [
     "87701872",
-    # "499825068"
+    "499825068"
 ]
 
 
@@ -130,7 +128,7 @@ def chatter(
     total_score = resp[1][0]
 
     if not total_score:
-        answer = "UNKNOWN"
+        answer = "Извините, не совсем поняла вопрос."
 
     return (
         question,
@@ -398,10 +396,10 @@ class VOABot:
         msg += f"\n`chat_id`: {chat_id}"
 
         for admin in ADMINS:
-            if str(chat_id) == admin:
+            if chat_id == int(admin):
                 continue
             self.bot.send_message(
-                chat_id=chat_id,
+                chat_id=int(admin),
                 text=msg,
                 parse_mode="MarkdownV2"
             )
