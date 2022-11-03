@@ -101,12 +101,7 @@ class ResultRec(BaseModel):
         arbitrary_types_allowed = True
 
     def to_msg(self):
-        return (
-            f"`recognized`: _{prepare_text(self.recognized.lower())}_\n"
-            f"`question`: _{prepare_text(self.question)}_\n"
-            f"`score`: `{str(round(self.score, 3))}`\n"
-            f"`answer`: _{prepare_text(self.answer)}_"
-        )
+        return prepare_text(self.answer)
 
 
 
@@ -304,7 +299,14 @@ class VOABot:
         context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=(
-                r"Successfully started"
+                "Добро пожаловать в бот misis_voice_assistant!\n"
+                "\nЧто может голосовой ассистент?"
+                "\n-Отвечать на текстовые вопросы сообщением"
+                "\n-Отвечать на голосовые сообщения аудиосообщением"
+                "\n-Передавать сообщения модераторам при неккоректном ответе"
+                "\n\nБудем рады, если во поможете улучшить бота и оцените полученный ответ под каждым сообщением, "
+                "при нажатии на крестик ваш вопрос отправится модератору для исправления ответа бота"
+                "\n\n Будем рады вам помочь и ответить на все вопросы!"
             ),
             parse_mode="MarkdownV2"
         )
@@ -320,7 +322,7 @@ class VOABot:
 
         message = update.message
         if not message or not message.voice:
-            print("No voice message obtained")
+            print("Голосовое сообщение отсутствует")
             return
 
         file_info = self.bot.get_file(message.voice.file_id)
@@ -331,7 +333,7 @@ class VOABot:
         ).replace("-", "_") / f"{round(time.time())}.ogg"
         path.parent.mkdir(exist_ok=True, parents=True)
         file_info.download(str(path))
-        msg = "Audio is being processed"
+        msg = "Подождите немного, анализируем ваш вопрос..."
         context.bot.send_message(
             chat_id=chat.id,
             text=msg,
@@ -435,7 +437,7 @@ class VOABot:
             filter={"_id": ObjectId(oid)},
             update={"$set": {"user_score": int(user_score)}}
         )
-        query.answer("Спасибо за оценку!")
+        query.answer("Спасибо за оценку! Сообщение отвправлено модераторам, новый ответ на ваш вопрос будет отправлен через некоторое время")
         # await query.edit_message_text(text=f"Selected option: {query.data}")
 
     def _init_model(self) -> Chainer:
@@ -453,7 +455,7 @@ class VOABot:
         dispatcher = self.updater.dispatcher
 
         start_handler = CommandHandler(
-            'start',
+            'Задать вопрос о МИСиС',
             self._tg_callback_start
         )
         voice_handler = MessageHandler(
