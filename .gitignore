@@ -134,3 +134,7 @@ data/models/
 tmp/
 
 *.ipynb
+
+.idea/
+idea/
+idea

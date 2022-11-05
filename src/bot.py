@@ -61,6 +61,19 @@ ADMINS = [
 ]
 
 
+def prepare_text(text: str) -> str:
+    """Format text for Telegram messages."""
+    return text\
+        .replace("-", r"\-") \
+        .replace("+", r"\+") \
+        .replace(".", r"\.")\
+        .replace("(", r"\(")\
+        .replace(")", r"\)")\
+        .replace("[", r"\[")\
+        .replace("]", r"\]")\
+        .replace("´", r"")
+
+
 class EnvSettings(BaseSettings):
     class Config:
         env_file = '.env'
@@ -101,8 +114,15 @@ class ResultRec(BaseModel):
         arbitrary_types_allowed = True
 
     def to_msg(self):
-        return prepare_text(self.answer)
-
+        if self.chat_id in ADMINS:
+            return (
+                f"`recognized`: _{prepare_text(self.recognized.lower())}_\n"
+                f"`question`: _{prepare_text(self.question)}_\n"
+                f"`score`: `{str(round(self.score, 3))}`\n"
+                f"`answer`: _{prepare_text(self.answer)}_"
+            )
+        else:
+            return prepare_text(self.answer)
 
 
 def chatter(
@@ -219,25 +239,12 @@ def converter(
     return True
 
 
-def prepare_text(text: str) -> str:
-    """Format text for Telegram messages."""
-    return text\
-        .replace("-", r"\-") \
-        .replace("+", r"\+") \
-        .replace(".", r"\.")\
-        .replace("(", r"\(")\
-        .replace(")", r"\)")\
-        .replace("[", r"\[")\
-        .replace("]", r"\]")\
-        .replace("´", r"")
-
-
 def get_keyboard(oid: str) -> InlineKeyboardMarkup:
     """Send a message with two inline buttons attached."""
     keyboard = [
         [
-            InlineKeyboardButton("❌", callback_data=f"{oid}_0"),
-            InlineKeyboardButton("✅", callback_data=f"{oid}_1"),
+            InlineKeyboardButton("❌ Плохой ответ", callback_data=f"{oid}_0"),
+            InlineKeyboardButton("✅ Хороший ответ", callback_data=f"{oid}_1"),
         ]
     ]
 
@@ -298,7 +305,7 @@ class VOABot:
 
         context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text=(
+            text=prepare_text(
                 "Добро пожаловать в бот misis_voice_assistant!\n"
                 "\nЧто может голосовой ассистент?"
                 "\n-Отвечать на текстовые вопросы сообщением"
@@ -437,7 +444,10 @@ class VOABot:
             filter={"_id": ObjectId(oid)},
             update={"$set": {"user_score": int(user_score)}}
         )
-        query.answer("Спасибо за оценку! Сообщение отвправлено модераторам, новый ответ на ваш вопрос будет отправлен через некоторое время")
+        if user_score == '0':
+            query.answer("Спасибо за оценку! Проверим, что было не так, и исправим")
+        else:
+            query.answer("Спасибо за оценку!")
         # await query.edit_message_text(text=f"Selected option: {query.data}")
 
     def _init_model(self) -> Chainer:
@@ -455,7 +465,7 @@ class VOABot:
         dispatcher = self.updater.dispatcher
 
         start_handler = CommandHandler(
-            'Задать вопрос о МИСиС',
+            'start',
             self._tg_callback_start
         )
         voice_handler = MessageHandler(
