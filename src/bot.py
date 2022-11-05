@@ -63,24 +63,26 @@ ADMINS = [
 
 def prepare_text(text: str) -> str:
     """Format text for Telegram messages."""
-    return text\
+    return text \
         .replace("-", r"\-") \
         .replace("+", r"\+") \
-        .replace(".", r"\.")\
-        .replace("(", r"\(")\
-        .replace(")", r"\)")\
-        .replace("[", r"\[")\
-        .replace("]", r"\]")\
+        .replace(".", r"\.") \
+        .replace("(", r"\(") \
+        .replace(")", r"\)") \
+        .replace("[", r"\[") \
+        .replace("]", r"\]") \
         .replace("´", r"")
 
 
 class EnvSettings(BaseSettings):
+
     class Config:
         env_file = '.env'
         env_file_encoding = 'utf-8'
 
 
 class MongoDBParams(EnvSettings):
+
     host: str = Field(..., env="MONGO_HOST")
     port: int = Field(..., env="MONGO_PORT")
     username: str = Field(..., env="MONGO_USER")
@@ -126,8 +128,8 @@ class ResultRec(BaseModel):
 
 
 def chatter(
-    predictor: Chainer,
-    question: str
+        predictor: Chainer,
+        question: str
 ) -> Tuple[str, str, float]:
     """Map a question to a list of answers and return the result.
 
@@ -203,9 +205,9 @@ def talker(text: str, path: Path, language: str = "ru") -> Path:
 
 
 def converter(
-    from_path: Path,
-    to_path: Path,
-    silence_ms: int = 0,
+        from_path: Path,
+        to_path: Path,
+        silence_ms: int = 0,
 ) -> bool:
     """Audio covertion.
 
@@ -426,10 +428,89 @@ class VOABot:
             voice=new_out_path.open("rb")
         )
 
+    def _tg_callback_text(self,
+                          update: Update,
+                          context: CallbackContext):
+        """Text command."""
+        chat = update.effective_chat
+        if not chat:
+            return
+        logging.warning("/text by %s", chat.id)
+
+        chat_id = chat.id
+
+        message = update.message
+        if not message or not message.voice:
+            print("Текстовое сообщение отсутствует")
+            return
+
+        text_info = message.text.lower()
+        print(text_info)
+
+        self._tg_handle_text(
+            chat_id=chat.id,
+            text=text_info,
+            context=context,
+        )
+        print("done")
+
+    def _tg_handle_text(
+            self,
+            text: str,
+            chat_id: int,
+            context: CallbackContext
+    ) -> None:
+        """Text processing."""
+        self._predictor = self._init_model()
+
+        question, answer, score = chatter(
+            self._predictor,
+            " ".join(word_tokenize(text))
+        )
+
+        db = self._get_mongo_client()[self.config.db.db]
+
+        rec = ResultRec(
+            recognized=text,
+            question=question,
+            score=score,
+            answer=answer,
+            chat_id=chat_id,
+            created_at=datetime.now(pytz.utc)
+        )
+        msg = rec.to_msg()
+
+        result = db["live_recs"].insert_one(
+            rec.dict(exclude={"id": True})
+        )
+        oid = result.inserted_id
+
+        context.bot.send_message(
+            chat_id=chat_id,
+            text=msg,
+            parse_mode="MarkdownV2",
+            reply_markup=get_keyboard(oid)
+        )
+        msg += f"\n`chat_id`: {chat_id}"
+
+        for admin in ADMINS:
+            if chat_id == int(admin):
+                continue
+            self.bot.send_message(
+                chat_id=int(admin),
+                text=msg,
+                parse_mode="MarkdownV2"
+            )
+        context.bot.send_message(
+            chat_id=chat_id,
+            text=rec.answer,
+            parse_mode="MarkdownV2"
+        )
+
     def _tg_callback_button(
-        self,
-        update: Update,
-        context: CallbackContext
+            self,
+            update: Update,
+            context: CallbackContext
     ) -> None:
         """Parse the CallbackQuery and updates the message text."""
         query = update.callback_query
@@ -475,10 +556,15 @@ class VOABot:
         button_handler = CallbackQueryHandler(
             self._tg_callback_button
         )
+        text_handler = MessageHandler(
+            Filters.text,
+            self._tg_callback_text
+        )
 
         dispatcher.add_handler(start_handler)
         dispatcher.add_handler(voice_handler)
         dispatcher.add_handler(button_handler)
+        dispatcher.add_handler(text_handler)
 
         self._predictor = self._init_model()
 
