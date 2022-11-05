@@ -61,6 +61,19 @@ ADMINS = [
 ]
 
 
+def prepare_text(text: str) -> str:
+    """Format text for Telegram messages."""
+    return text\
+        .replace("-", r"\-") \
+        .replace("+", r"\+") \
+        .replace(".", r"\.")\
+        .replace("(", r"\(")\
+        .replace(")", r"\)")\
+        .replace("[", r"\[")\
+        .replace("]", r"\]")\
+        .replace("´", r"")
+
+
 class EnvSettings(BaseSettings):
     class Config:
         env_file = '.env'
@@ -101,13 +114,15 @@ class ResultRec(BaseModel):
         arbitrary_types_allowed = True
 
     def to_msg(self):
-        return (
-            f"`recognized`: _{prepare_text(self.recognized.lower())}_\n"
-            f"`question`: _{prepare_text(self.question)}_\n"
-            f"`score`: `{str(round(self.score, 3))}`\n"
-            f"`answer`: _{prepare_text(self.answer)}_"
-        )
-
+        if self.chat_id in ADMINS:
+            return (
+                f"`recognized`: _{prepare_text(self.recognized.lower())}_\n"
+                f"`question`: _{prepare_text(self.question)}_\n"
+                f"`score`: `{str(round(self.score, 3))}`\n"
+                f"`answer`: _{prepare_text(self.answer)}_"
+            )
+        else:
+            return prepare_text(self.answer)
 
 
 def chatter(
@@ -224,25 +239,12 @@ def converter(
     return True
 
 
-def prepare_text(text: str) -> str:
-    """Format text for Telegram messages."""
-    return text\
-        .replace("-", r"\-") \
-        .replace("+", r"\+") \
-        .replace(".", r"\.")\
-        .replace("(", r"\(")\
-        .replace(")", r"\)")\
-        .replace("[", r"\[")\
-        .replace("]", r"\]")\
-        .replace("´", r"")
-
-
 def get_keyboard(oid: str) -> InlineKeyboardMarkup:
     """Send a message with two inline buttons attached."""
     keyboard = [
         [
-            InlineKeyboardButton("❌", callback_data=f"{oid}_0"),
-            InlineKeyboardButton("✅", callback_data=f"{oid}_1"),
+            InlineKeyboardButton("❌ Плохой ответ", callback_data=f"{oid}_0"),
+            InlineKeyboardButton("✅ Хороший ответ", callback_data=f"{oid}_1"),
         ]
     ]
 
@@ -303,8 +305,15 @@ class VOABot:
 
         context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text=(
-                r"Successfully started"
+            text=prepare_text(
+                "Добро пожаловать в бот misis_voice_assistant!\n"
+                "\nЧто может голосовой ассистент?"
+                "\n-Отвечать на текстовые вопросы сообщением"
+                "\n-Отвечать на голосовые сообщения аудиосообщением"
+                "\n-Передавать сообщения модераторам при неккоректном ответе"
+                "\n\nБудем рады, если во поможете улучшить бота и оцените полученный ответ под каждым сообщением, "
+                "при нажатии на крестик ваш вопрос отправится модератору для исправления ответа бота"
+                "\n\n Будем рады вам помочь и ответить на все вопросы!"
             ),
             parse_mode="MarkdownV2"
         )
@@ -320,7 +329,7 @@ class VOABot:
 
         message = update.message
         if not message or not message.voice:
-            print("No voice message obtained")
+            print("Голосовое сообщение отсутствует")
             return
 
         file_info = self.bot.get_file(message.voice.file_id)
@@ -331,7 +340,7 @@ class VOABot:
         ).replace("-", "_") / f"{round(time.time())}.ogg"
         path.parent.mkdir(exist_ok=True, parents=True)
         file_info.download(str(path))
-        msg = "Audio is being processed"
+        msg = "Подождите немного, анализируем ваш вопрос..."
         context.bot.send_message(
             chat_id=chat.id,
             text=msg,
@@ -435,7 +444,10 @@ class VOABot:
             filter={"_id": ObjectId(oid)},
             update={"$set": {"user_score": int(user_score)}}
         )
-        query.answer("Спасибо за оценку!")
+        if user_score == '0':
+            query.answer("Спасибо за оценку! Проверим, что было не так, и исправим")
+        else:
+            query.answer("Спасибо за оценку!")
         # await query.edit_message_text(text=f"Selected option: {query.data}")
 
     def _init_model(self) -> Chainer:
