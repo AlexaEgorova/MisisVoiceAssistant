@@ -71,6 +71,7 @@ def prepare_text(text: str) -> str:
         .replace(")", r"\)") \
         .replace("[", r"\[") \
         .replace("]", r"\]") \
+        .replace("!", r"\!") \
         .replace("´", r"")
 
 
@@ -345,7 +346,7 @@ class VOABot:
         msg = "Подождите немного, анализируем ваш вопрос..."
         context.bot.send_message(
             chat_id=chat.id,
-            text=msg,
+            text=prepare_text(msg),
             parse_mode="MarkdownV2"
         )
         self._tg_handle_voice(
@@ -409,7 +410,7 @@ class VOABot:
 
         context.bot.send_message(
             chat_id=chat_id,
-            text=msg,
+            text=prepare_text(msg),
             parse_mode="MarkdownV2",
             reply_markup=get_keyboard(oid)
         )
@@ -420,7 +421,7 @@ class VOABot:
                 continue
             self.bot.send_message(
                 chat_id=int(admin),
-                text=msg,
+                text=prepare_text(msg),
                 parse_mode="MarkdownV2"
             )
         context.bot.send_voice(
@@ -449,7 +450,7 @@ class VOABot:
 
         self._tg_handle_text(
             chat_id=chat.id,
-            text=text_info,
+            text=prepare_text(text_info),
             context=context,
         )
         print("done")
@@ -487,7 +488,7 @@ class VOABot:
 
         context.bot.send_message(
             chat_id=chat_id,
-            text=msg,
+            text=prepare_text(msg),
             parse_mode="MarkdownV2",
             reply_markup=get_keyboard(oid)
         )
@@ -498,12 +499,12 @@ class VOABot:
                 continue
             self.bot.send_message(
                 chat_id=int(admin),
-                text=msg,
+                text=prepare_text(msg),
                 parse_mode="MarkdownV2"
             )
         context.bot.send_message(
             chat_id=chat_id,
-            text=rec.answer,
+            text=prepare_text(rec.answer),
             parse_mode="MarkdownV2"
         )
 
