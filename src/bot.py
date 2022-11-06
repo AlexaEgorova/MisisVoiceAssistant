@@ -119,13 +119,13 @@ class ResultRec(BaseModel):
     def to_msg(self):
         if self.chat_id in ADMINS:
             return (
-                f"`recognized`: _{prepare_text(self.recognized.lower())}_\n"
-                f"`question`: _{prepare_text(self.question)}_\n"
+                f"`recognized`: _{self.recognized.lower()}_\n"
+                f"`question`: _{self.question}_\n"
                 f"`score`: `{str(round(self.score, 3))}`\n"
-                f"`answer`: _{prepare_text(self.answer)}_"
+                f"`answer`: _{self.answer}_"
             )
         else:
-            return prepare_text(self.answer)
+            return self.answer
 
 
 def chatter(
